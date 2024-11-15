@@ -14,70 +14,72 @@ const MockAdapter = require("@bot-whatsapp/database/mock");
 const { handlerAI } = require("./utils");
 const { textToVoice } = require("./services/eventlab");
 
+// Configuración del complemento de empleados digitales
 const employeesAddonConfig = {
   model: "gpt-4-0613",
   temperature: 0,
   apiKey: process.env.OPENAI_API_KEY,
 };
-
 const employeesAddon = init(employeesAddonConfig);
 
-const flowStaff = addKeyword(EVENTS.ACTION).addAnswer(
-  ["Claro que te interesa?", "mejor te envio audio.."],
-  null,
-  async (_, { flowDynamic, state }) => {
-    console.log("🙉 texto a voz....");
-    const currentState = state.getMyState();
-    const path = await textToVoice(currentState.answer);
-    console.log(`🙉 Fin texto a voz....[PATH]:${path}`);
-    await flowDynamic([{ body: "escucha", media: path }]);
-  }
-);
+// Flujo para manejar mensajes de texto
+const flowTextMessage = addKeyword([""]).addAnswer([
+  "Hola, es un placer conocerte, en un momento te atenderemos.",
+]);
 
+// Flujo para manejar notas de voz
 const flowVoiceNote = addKeyword(EVENTS.VOICE_NOTE).addAction(
   async (ctx, ctxFn) => {
-    await ctxFn.flowDynamic("dame un momento para escucharte...🙉");
-    console.log("🤖 voz a texto....");
-    const text = await handlerAI(ctx);
+    await ctxFn.flowDynamic("Dame un momento para escucharte... 🙉");
+    console.log("🤖 Voz a texto....");
+    const text = await handlerAI(ctx); // Convierte la nota de voz a texto
     console.log(`🤖 Fin voz a texto....[TEXT]: ${text}`);
     const currentState = ctxFn.state.getMyState();
     const fullSentence = `${currentState?.answer ?? ""}. ${text}`;
-    const { employee, answer } = await employeesAddon.determine(fullSentence);
+    const { employee, answer } = await employeesAddon.determine(fullSentence); // Procesa el texto con OpenAI
     ctxFn.state.update({ answer });
-    employeesAddon.gotoFlow(employee, ctxFn);
+    employeesAddon.gotoFlow(employee, ctxFn); // Redirige al flujo correspondiente
+  }
+);
+
+// Flujo para manejar interacciones con el staff
+const flowStaff = addKeyword(EVENTS.ACTION).addAnswer(
+  ["Claro que te interesa, mejor te envío un audio..."],
+  null,
+  async (_, { flowDynamic, state }) => {
+    console.log("🙉 Texto a voz....");
+    const currentState = state.getMyState();
+    const path = await textToVoice(currentState.answer);
+    console.log(`🙉 Fin texto a voz....[PATH]: ${path}`);
+    await flowDynamic([{ body: "Escucha esto:", media: path }]);
   }
 );
 
 const main = async () => {
-  const adapterDB = new MockAdapter();
+  const adapterDB = new MockAdapter(); // Base de datos simulada
+  const adapterFlow = createFlow([flowTextMessage, flowVoiceNote, flowStaff]); // Flujos registrados
+  const adapterProvider = createProvider(BaileysProvider); // Proveedor de conexión a WhatsApp
 
-  const adapterFlow = createFlow([flowVoiceNote, flowStaff]);
-
-  const adapterProvider = createProvider(BaileysProvider);
-
-  /**
-   * 🤔 Empledos digitales
-   * Imaginar cada empleado descrito con sus deberes de manera explicita
-   */
+  // Definición de empleados digitales
   const employees = [
     {
       name: "EMPLEADO_STAFF_TOUR",
       description:
-        "Soy Jorge el staff amable encargado de atentender las solicitudes de los viajeros si tienen dudas, preguntas sobre el tour o la ciudad de madrid, mis respuestas son breves.",
+        "Soy Jorge, el staff amable encargado de atender las solicitudes de los viajeros. Respondo dudas sobre el tour o la ciudad de Madrid con respuestas breves.",
       flow: flowStaff,
-    }
+    },
   ];
-
   employeesAddon.employees(employees);
 
+  // Creación del bot
   createBot({
     flow: adapterFlow,
     provider: adapterProvider,
     database: adapterDB,
   });
 
-  QRPortalWeb()
-  
+  // Mostrar el portal QR para conectar el bot con WhatsApp
+  QRPortalWeb();
 };
 
 main();
